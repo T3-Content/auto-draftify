@@ -1,25 +1,34 @@
-import { generateObject, generateText } from "ai";
-import { z } from "zod";
+import { generateText } from "ai";
 import type { RunnableModel } from "./constants";
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  /** Cost in USD from OpenRouter */
+  cost: number;
+}
 
 export interface EssayResult {
   text: string;
+  usage: TokenUsage;
 }
 
 export interface ReviewResult {
   text: string;
+  usage: TokenUsage;
 }
 
 export interface RevisionResult {
   text: string;
+  usage: TokenUsage;
 }
 
-export const ScoreSchema = z.object({
-  score: z.number().min(1).max(10),
-  justification: z.string(),
-});
-
-export type ScoreResult = z.infer<typeof ScoreSchema>;
+export interface ScoreResult {
+  score: number;
+  justification: string;
+  usage: TokenUsage;
+}
 
 /**
  * Generates an essay based on the given topic prompt.
@@ -38,6 +47,12 @@ Write approximately 800-1200 words.`,
 
   return {
     text: result.text,
+    usage: {
+      inputTokens: result.usage?.inputTokens ?? 0,
+      outputTokens: result.usage?.outputTokens ?? 0,
+      totalTokens: result.usage?.totalTokens ?? 0,
+      cost: (result.providerMetadata?.openrouter?.cost as number) ?? 0,
+    },
   };
 }
 
@@ -59,6 +74,12 @@ Be thorough but encouraging. Focus on actionable improvements.`,
 
   return {
     text: result.text,
+    usage: {
+      inputTokens: result.usage?.inputTokens ?? 0,
+      outputTokens: result.usage?.outputTokens ?? 0,
+      totalTokens: result.usage?.totalTokens ?? 0,
+      cost: (result.providerMetadata?.openrouter?.cost as number) ?? 0,
+    },
   };
 }
 
@@ -81,6 +102,12 @@ Produce a complete revised essay, not just suggestions.`,
 
   return {
     text: result.text,
+    usage: {
+      inputTokens: result.usage?.inputTokens ?? 0,
+      outputTokens: result.usage?.outputTokens ?? 0,
+      totalTokens: result.usage?.totalTokens ?? 0,
+      cost: (result.providerMetadata?.openrouter?.cost as number) ?? 0,
+    },
   };
 }
 
@@ -92,9 +119,8 @@ export async function scoreEssay(
   essay: string,
   topic: string
 ): Promise<ScoreResult> {
-  const result = await generateObject({
+  const result = await generateText({
     model: model.llm,
-    schema: ScoreSchema,
     system: `You are an expert essay judge. Score the essay on a scale of 1-10 based on:
 - Clarity and coherence of argument
 - Quality of writing (style, grammar, flow)
@@ -102,9 +128,29 @@ export async function scoreEssay(
 - Relevance to the topic
 - Overall effectiveness
 
-Be fair and consistent in your scoring. A score of 5 is average, 7-8 is good, 9-10 is exceptional.`,
+Be fair and consistent in your scoring. A score of 5 is average, 7-8 is good, 9-10 is exceptional.
+
+IMPORTANT: Start your response with EXACTLY "Score: X/10" on the first line (where X is your score), then provide your detailed justification below.`,
     prompt: `Topic: ${topic}\n\nPlease score the following essay:\n\n${essay}`,
   });
 
-  return result.object;
+  // Parse score from the text - look for "Score: X/10" or similar patterns
+  const scoreMatch = result.text.match(/Score:\s*(\d+(?:\.\d+)?)\s*\/\s*10/i);
+  const score = scoreMatch?.[1] ? parseFloat(scoreMatch[1]) : 5; // Default to 5 if parsing fails
+
+  // Everything after the score line is the justification
+  const justification = result.text
+    .replace(/^Score:\s*\d+(?:\.\d+)?\s*\/\s*10\s*/i, "")
+    .trim();
+
+  return {
+    score: Math.min(10, Math.max(1, score)), // Clamp between 1-10
+    justification,
+    usage: {
+      inputTokens: result.usage?.inputTokens ?? 0,
+      outputTokens: result.usage?.outputTokens ?? 0,
+      totalTokens: result.usage?.totalTokens ?? 0,
+      cost: (result.providerMetadata?.openrouter?.cost as number) ?? 0,
+    },
+  };
 }

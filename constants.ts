@@ -40,12 +40,12 @@ export const modelsToRun: RunnableModel[] = [
   // Anthropic
   {
     name: "claude-4.5-opus-reasoning",
-    llm: openrouter("anthropic/claude-opus-4.5"),
+    llm: openrouter("anthropic/claude-opus-4-5"),
     reasoning: true,
   },
   {
     name: "claude-4.5-opus-non-reasoning",
-    llm: openrouter("anthropic/claude-opus-4.5"),
+    llm: openrouter("anthropic/claude-opus-4-5"),
     reasoning: false,
   },
 
@@ -78,8 +78,8 @@ export const modelsToRun: RunnableModel[] = [
     reasoning: true,
   },
   {
-    name: "gemini-2.5-flash",
-    llm: openrouter("google/gemini-2.5-pro-preview"),
+    name: "gemini-2.5-pro",
+    llm: openrouter("google/gemini-2.5-pro"),
     reasoning: true,
   },
 
@@ -99,6 +99,25 @@ export const modelsToRun: RunnableModel[] = [
   {
     name: "kimi-k2-thinking",
     llm: openrouter("moonshotai/kimi-k2-thinking"),
+    reasoning: true,
+  },
+];
+
+// Cheap models for dry-run testing
+export const dryRunModels: RunnableModel[] = [
+  {
+    name: "claude-4.5-haiku",
+    llm: openrouter("anthropic/claude-haiku-4.5"),
+    reasoning: false,
+  },
+  {
+    name: "gemini-2.5-flash",
+    llm: openrouter("google/gemini-2.5-flash"),
+    reasoning: true,
+  },
+  {
+    name: "gpt-5-mini",
+    llm: openrouter("openai/gpt-5-mini"),
     reasoning: true,
   },
 ];

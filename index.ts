@@ -4,8 +4,18 @@ import {
   reviewEssay,
   reviseEssay,
   scoreEssay,
+  type TokenUsage,
 } from "./aiClient";
-import { modelsToRun, PARALLEL_LIMIT, TOPICS } from "./constants";
+import {
+  modelsToRun as allModels,
+  dryRunModels,
+  PARALLEL_LIMIT,
+  TOPICS,
+} from "./constants";
+
+// Parse CLI flags
+const isDryRun = process.argv.includes("--dry-run");
+const modelsToRun = isDryRun ? dryRunModels : allModels;
 import {
   createTopicDirectories,
   initArenaRun,
@@ -19,6 +29,34 @@ import {
 } from "./fileUtils";
 
 const limit = pLimit(PARALLEL_LIMIT);
+
+/**
+ * Tracks token usage and costs per model per phase.
+ */
+interface UsageTracker {
+  essays: Record<string, TokenUsage[]>;
+  reviews: Record<string, TokenUsage[]>;
+  revisions: Record<string, TokenUsage[]>;
+  scores: Record<string, TokenUsage[]>;
+}
+
+function createUsageTracker(): UsageTracker {
+  const tracker: UsageTracker = {
+    essays: {},
+    reviews: {},
+    revisions: {},
+    scores: {},
+  };
+  for (const model of modelsToRun) {
+    tracker.essays[model.name] = [];
+    tracker.reviews[model.name] = [];
+    tracker.revisions[model.name] = [];
+    tracker.scores[model.name] = [];
+  }
+  return tracker;
+}
+
+const usageTracker = createUsageTracker();
 
 /**
  * Counts the actual API calls for each phase based on model configuration.
@@ -86,6 +124,9 @@ async function confirmRun(): Promise<boolean> {
   const { essays, feedback, revisions, scores, total } = countApiCalls();
 
   console.log("\n🏟️  Writing Quality Arena\n");
+  if (isDryRun) {
+    console.log("⚡ DRY RUN MODE (using cheap models)\n");
+  }
   console.log(`Models: ${modelsToRun.length}`);
   console.log(`Topics: ${TOPICS.length}`);
   console.log(`\nAPI Call Breakdown (across all ${TOPICS.length} topics):`);
@@ -125,8 +166,13 @@ async function runPhase1Essays(
       console.log(`    Generating essay: ${model.name}...`);
       const result = await generateEssay(model, topic);
       essays[model.name] = result.text;
+      usageTracker.essays[model.name]!.push(result.usage);
       await writeEssay(topicDir, model.name, result.text);
-      console.log(`    ✓ ${model.name}`);
+      console.log(
+        `    ✓ ${model.name} (${
+          result.usage.totalTokens
+        } tokens, $${result.usage.cost.toFixed(4)})`
+      );
       return result;
     })
   );
@@ -162,13 +208,18 @@ async function runPhase2Feedback(
           const essayText = essays[author.name]!;
           const result = await reviewEssay(reviewer, essayText, topic);
           feedback[reviewer.name]![author.name] = result.text;
+          usageTracker.reviews[reviewer.name]!.push(result.usage);
           await writeFeedback(
             topicDir,
             reviewer.name,
             author.name,
             result.text
           );
-          console.log(`    ✓ ${reviewer.name} → ${author.name}`);
+          console.log(
+            `    ✓ ${reviewer.name} → ${author.name} (${
+              result.usage.totalTokens
+            } tokens, $${result.usage.cost.toFixed(4)})`
+          );
         })
       );
     }
@@ -214,13 +265,18 @@ async function runPhase3Revisions(
             reviewerFeedback
           );
           revisions[author.name]![reviewer.name] = result.text;
+          usageTracker.revisions[author.name]!.push(result.usage);
           await writeRevision(
             topicDir,
             author.name,
             reviewer.name,
             result.text
           );
-          console.log(`    ✓ ${author.name} ← ${reviewer.name}`);
+          console.log(
+            `    ✓ ${author.name} ← ${reviewer.name} (${
+              result.usage.totalTokens
+            } tokens, $${result.usage.cost.toFixed(4)})`
+          );
         })
       );
     }
@@ -275,9 +331,17 @@ async function runPhase4Scoring(
           const essayText = essays[author.name]!;
           console.log(`    ${judge.name} scoring ${author.name} (original)...`);
           const result = await scoreEssay(judge, essayText, topic);
-          originalScores[judge.name]![author.name] = result;
+          originalScores[judge.name]![author.name] = {
+            score: result.score,
+            justification: result.justification,
+          };
+          usageTracker.scores[judge.name]!.push(result.usage);
           console.log(
-            `    ✓ ${judge.name} → ${author.name} (original): ${result.score}`
+            `    ✓ ${judge.name} → ${author.name} (original): ${
+              result.score
+            } (${result.usage.totalTokens} tokens, $${result.usage.cost.toFixed(
+              4
+            )})`
           );
         })
       );
@@ -297,9 +361,17 @@ async function runPhase4Scoring(
               `    ${judge.name} scoring ${author.name}←${reviewer.name} (revised)...`
             );
             const result = await scoreEssay(judge, revision, topic);
-            revisedScores[judge.name]![author.name]![reviewer.name] = result;
+            revisedScores[judge.name]![author.name]![reviewer.name] = {
+              score: result.score,
+              justification: result.justification,
+            };
+            usageTracker.scores[judge.name]!.push(result.usage);
             console.log(
-              `    ✓ ${judge.name} → ${author.name}←${reviewer.name}: ${result.score}`
+              `    ✓ ${judge.name} → ${author.name}←${reviewer.name}: ${
+                result.score
+              } (${
+                result.usage.totalTokens
+              } tokens, $${result.usage.cost.toFixed(4)})`
             );
           })
         );
@@ -582,7 +654,114 @@ async function runArena(): Promise<void> {
     );
   });
 
+  // Print usage and cost summary
+  printUsageSummary();
+
   console.log(`\n✨ Arena complete! Results saved to: ${baseDir}`);
+}
+
+/**
+ * Calculates average tokens from an array of usage records.
+ */
+function calcAverage(usages: TokenUsage[]) {
+  if (usages.length === 0) return { tokens: 0, cost: 0 };
+  const totalTokens = usages.reduce((sum, u) => sum + u.totalTokens, 0);
+  const totalCost = usages.reduce((sum, u) => sum + u.cost, 0);
+  return {
+    tokens: Math.round(totalTokens / usages.length),
+    cost: totalCost,
+  };
+}
+
+/**
+ * Prints a summary of token usage and costs.
+ */
+function printUsageSummary() {
+  console.log("\n" + "═".repeat(60));
+  console.log("\n💰 TOKEN USAGE & COST SUMMARY\n");
+
+  // Calculate phase totals
+  let totalEssayCost = 0;
+  let totalReviewCost = 0;
+  let totalRevisionCost = 0;
+  let totalScoreCost = 0;
+
+  // Per-model stats
+  const modelStats: Array<{
+    name: string;
+    essayAvgTokens: number;
+    essayCost: number;
+    reviewAvgTokens: number;
+    reviewCost: number;
+    revisionAvgTokens: number;
+    revisionCost: number;
+    scoreCost: number;
+    totalCost: number;
+  }> = [];
+
+  for (const model of modelsToRun) {
+    const essayStats = calcAverage(usageTracker.essays[model.name]!);
+    const reviewStats = calcAverage(usageTracker.reviews[model.name]!);
+    const revisionStats = calcAverage(usageTracker.revisions[model.name]!);
+    const scoreStats = calcAverage(usageTracker.scores[model.name]!);
+
+    totalEssayCost += essayStats.cost;
+    totalReviewCost += reviewStats.cost;
+    totalRevisionCost += revisionStats.cost;
+    totalScoreCost += scoreStats.cost;
+
+    modelStats.push({
+      name: model.name,
+      essayAvgTokens: essayStats.tokens,
+      essayCost: essayStats.cost,
+      reviewAvgTokens: reviewStats.tokens,
+      reviewCost: reviewStats.cost,
+      revisionAvgTokens: revisionStats.tokens,
+      revisionCost: revisionStats.cost,
+      scoreCost: scoreStats.cost,
+      totalCost:
+        essayStats.cost +
+        reviewStats.cost +
+        revisionStats.cost +
+        scoreStats.cost,
+    });
+  }
+
+  const grandTotal =
+    totalEssayCost + totalReviewCost + totalRevisionCost + totalScoreCost;
+
+  // Print phase cost breakdown
+  console.log("Phase Costs:");
+  console.log(`  Essays (First):     $${totalEssayCost.toFixed(4)}`);
+  console.log(`  Reviews:            $${totalReviewCost.toFixed(4)}`);
+  console.log(`  Revisions (Follow): $${totalRevisionCost.toFixed(4)}`);
+  console.log(`  Scoring:            $${totalScoreCost.toFixed(4)}`);
+  console.log(`  ────────────────────────────`);
+  console.log(`  Total:              $${grandTotal.toFixed(4)}`);
+
+  // Print per-model breakdown
+  console.log("\n\nPer-Model Token Averages & Costs:\n");
+  console.log(
+    "  Model".padEnd(32) +
+      "First Essay".padStart(14) +
+      "Reviews".padStart(14) +
+      "Follow-up".padStart(14) +
+      "Total Cost".padStart(12)
+  );
+  console.log("  " + "─".repeat(84));
+
+  for (const stat of modelStats.sort((a, b) => b.totalCost - a.totalCost)) {
+    const essayCol = `${stat.essayAvgTokens} tok`.padStart(14);
+    const reviewCol = `${stat.reviewAvgTokens} tok`.padStart(14);
+    const revisionCol = `${stat.revisionAvgTokens} tok`.padStart(14);
+    const costCol = `$${stat.totalCost.toFixed(4)}`.padStart(12);
+    console.log(
+      `  ${stat.name.padEnd(30)}${essayCol}${reviewCol}${revisionCol}${costCol}`
+    );
+  }
+
+  console.log("\n  " + "─".repeat(84));
+  console.log(`  ${"GRAND TOTAL".padEnd(72)}$${grandTotal.toFixed(4)}`);
 }
 
 // Run the arena
