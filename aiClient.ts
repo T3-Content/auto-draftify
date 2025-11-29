@@ -9,9 +9,15 @@ function extractCost(
 ): number {
   if (!providerMetadata) return 0;
   const openrouterMeta = providerMetadata.openrouter as any;
+
   if (openrouterMeta?.usage?.cost) {
     return openrouterMeta.usage.cost;
   }
+
+  if (openrouterMeta?.usage?.costDetails?.upstreamInferenceCost) {
+    return openrouterMeta.usage.costDetails.upstreamInferenceCost;
+  }
+
   return 0;
 }
 
