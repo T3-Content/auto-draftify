@@ -1,0 +1,104 @@
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import type { LanguageModel } from "ai";
+
+// Initialize the OpenRouter provider
+if (!process.env.OPENROUTER_API_KEY) {
+  throw new Error(
+    "OPENROUTER_API_KEY environment variable is required. Please set it before running the script."
+  );
+}
+
+const openrouter = createOpenRouter({
+  apiKey: process.env.OPENROUTER_API_KEY,
+});
+
+// Parallelism configuration
+export const PARALLEL_LIMIT = 20;
+
+// Essay topics
+export const TOPICS = [
+  "The role of failure in personal growth",
+  // "Why boredom is underrated",
+  // "The ethics of artificial intelligence",
+  // "How social media reshapes human connection",
+  // "The value of slow living in a fast world",
+  // "Why we should embrace uncertainty",
+  // "The hidden costs of convenience",
+  // "What makes a good explanation",
+  // "The relationship between creativity and constraint",
+  // "Why some ideas spread and others don't",
+] as const;
+
+// Model definition
+export interface RunnableModel {
+  name: string;
+  llm: LanguageModel;
+  reasoning: boolean;
+}
+
+export const modelsToRun: RunnableModel[] = [
+  // Anthropic
+  {
+    name: "claude-4.5-opus-reasoning",
+    llm: openrouter("anthropic/claude-opus-4.5"),
+    reasoning: true,
+  },
+  {
+    name: "claude-4.5-opus-non-reasoning",
+    llm: openrouter("anthropic/claude-opus-4.5"),
+    reasoning: false,
+  },
+
+  // OpenAI
+  {
+    name: "gpt-4o",
+    llm: openrouter("openai/gpt-4o"),
+    reasoning: false,
+  },
+  {
+    name: "gpt-5",
+    llm: openrouter("openai/gpt-5"),
+    reasoning: true,
+  },
+  {
+    name: "gpt-5-chat",
+    llm: openrouter("openai/gpt-5-chat"),
+    reasoning: false,
+  },
+  {
+    name: "gpt-5-mini",
+    llm: openrouter("openai/gpt-5-mini"),
+    reasoning: true,
+  },
+
+  // Google
+  {
+    name: "gemini-3-pro-preview",
+    llm: openrouter("google/gemini-3-pro-preview"),
+    reasoning: true,
+  },
+  {
+    name: "gemini-2.5-flash",
+    llm: openrouter("google/gemini-2.5-pro-preview"),
+    reasoning: true,
+  },
+
+  // Grok
+  {
+    name: "grok-4.1-fast",
+    llm: openrouter("x-ai/grok-4.1-fast"),
+    reasoning: true,
+  },
+
+  // Open Weight
+  {
+    name: "kimi-k2",
+    llm: openrouter("moonshotai/kimi-k2"),
+    reasoning: false,
+  },
+  {
+    name: "kimi-k2-thinking",
+    llm: openrouter("moonshotai/kimi-k2-thinking"),
+    reasoning: true,
+  },
+];
