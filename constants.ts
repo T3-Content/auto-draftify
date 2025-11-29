@@ -17,7 +17,7 @@ export const PARALLEL_LIMIT = 20;
 
 // Essay topics
 export const TOPICS = [
-  "The role of failure in personal growth",
+  // "The role of failure in personal growth",
   // "Why boredom is underrated",
   // "The ethics of artificial intelligence",
   // "How social media reshapes human connection",
@@ -25,7 +25,7 @@ export const TOPICS = [
   // "Why we should embrace uncertainty",
   // "The hidden costs of convenience",
   // "What makes a good explanation",
-  // "The relationship between creativity and constraint",
+  "The relationship between creativity and constraint",
   // "Why some ideas spread and others don't",
 ] as const;
 
@@ -40,12 +40,12 @@ export const modelsToRun: RunnableModel[] = [
   // Anthropic
   {
     name: "claude-4.5-opus-reasoning",
-    llm: openrouter("anthropic/claude-opus-4-5"),
+    llm: openrouter("anthropic/claude-opus-4.5"),
     reasoning: true,
   },
   {
     name: "claude-4.5-opus-non-reasoning",
-    llm: openrouter("anthropic/claude-opus-4-5"),
+    llm: openrouter("anthropic/claude-opus-4.5"),
     reasoning: false,
   },
 
@@ -56,13 +56,13 @@ export const modelsToRun: RunnableModel[] = [
     reasoning: false,
   },
   {
-    name: "gpt-5",
+    name: "gpt-5.1",
     llm: openrouter("openai/gpt-5"),
     reasoning: true,
   },
   {
-    name: "gpt-5-chat",
-    llm: openrouter("openai/gpt-5-chat"),
+    name: "gpt-5.1-chat",
+    llm: openrouter("openai/gpt-5.1-chat"),
     reasoning: false,
   },
   {
