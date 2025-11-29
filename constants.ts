@@ -27,6 +27,7 @@ export const TOPICS = [
   // "What makes a good explanation",
   "The relationship between creativity and constraint",
   // "Why some ideas spread and others don't",
+  "the negative impacts on society from artificial intelligence",
 ] as const;
 
 // Model definition
@@ -43,33 +44,33 @@ export const modelsToRun: RunnableModel[] = [
     llm: openrouter("anthropic/claude-opus-4.5"),
     reasoning: true,
   },
-  {
-    name: "claude-4.5-opus-non-reasoning",
-    llm: openrouter("anthropic/claude-opus-4.5"),
-    reasoning: false,
-  },
+  // {
+  //   name: "claude-4.5-opus-non-reasoning",
+  //   llm: openrouter("anthropic/claude-opus-4.5"),
+  //   reasoning: false,
+  // },
 
   // OpenAI
-  {
-    name: "gpt-4o",
-    llm: openrouter("openai/gpt-4o"),
-    reasoning: false,
-  },
+  // {
+  //   name: "gpt-4o",
+  //   llm: openrouter("openai/gpt-4o"),
+  //   reasoning: false,
+  // },
   {
     name: "gpt-5.1",
     llm: openrouter("openai/gpt-5"),
     reasoning: true,
   },
-  {
-    name: "gpt-5.1-chat",
-    llm: openrouter("openai/gpt-5.1-chat"),
-    reasoning: false,
-  },
-  {
-    name: "gpt-5-mini",
-    llm: openrouter("openai/gpt-5-mini"),
-    reasoning: true,
-  },
+  // {
+  //   name: "gpt-5.1-chat",
+  //   llm: openrouter("openai/gpt-5.1-chat"),
+  //   reasoning: false,
+  // },
+  // {
+  //   name: "gpt-5-mini",
+  //   llm: openrouter("openai/gpt-5-mini"),
+  //   reasoning: true,
+  // },
 
   // Google
   {
@@ -77,25 +78,25 @@ export const modelsToRun: RunnableModel[] = [
     llm: openrouter("google/gemini-3-pro-preview"),
     reasoning: true,
   },
-  {
-    name: "gemini-2.5-pro",
-    llm: openrouter("google/gemini-2.5-pro"),
-    reasoning: true,
-  },
+  // {
+  //   name: "gemini-2.5-pro",
+  //   llm: openrouter("google/gemini-2.5-pro"),
+  //   reasoning: true,
+  // },
 
   // Grok
-  {
-    name: "grok-4.1-fast",
-    llm: openrouter("x-ai/grok-4.1-fast"),
-    reasoning: true,
-  },
+  // {
+  //   name: "grok-4.1-fast",
+  //   llm: openrouter("x-ai/grok-4.1-fast"),
+  //   reasoning: true,
+  // },
 
   // Open Weight
-  {
-    name: "kimi-k2",
-    llm: openrouter("moonshotai/kimi-k2"),
-    reasoning: false,
-  },
+  // {
+  //   name: "kimi-k2",
+  //   llm: openrouter("moonshotai/kimi-k2"),
+  //   reasoning: false,
+  // },
   {
     name: "kimi-k2-thinking",
     llm: openrouter("moonshotai/kimi-k2-thinking"),

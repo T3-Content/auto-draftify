@@ -3,6 +3,8 @@ import { join } from "path";
 
 const RESULTS_DIR = "results";
 
+export type TestType = "scoring-test" | "1v1";
+
 export interface TopicResults {
   topic: string;
   essays: Record<string, string>;
@@ -45,6 +47,63 @@ export interface ArenaResults {
     reviewers: Array<{
       reviewer: string;
       avgImprovement: number;
+    }>;
+  };
+}
+
+// 1v1 specific types
+export interface ComparisonResult {
+  judge: string;
+  essayA: { author: string; reviewer?: string };
+  essayB: { author: string; reviewer?: string };
+  winner: "A" | "B" | "tie";
+  reasoning: string;
+}
+
+export interface OneVsOneTopicResults {
+  topic: string;
+  essays: Record<string, string>;
+  feedback: Record<string, Record<string, string>>;
+  revisions: Record<string, Record<string, string>>;
+  comparisons: ComparisonResult[];
+  rankings: {
+    essays: Array<{
+      author: string;
+      reviewer?: string;
+      wins: number;
+      losses: number;
+      ties: number;
+      winRate: number;
+    }>;
+  };
+}
+
+export interface OneVsOneResults {
+  timestamp: string;
+  models: string[];
+  topics: OneVsOneTopicResults[];
+  aggregateRankings: {
+    essays: Array<{
+      author: string;
+      wins: number;
+      losses: number;
+      ties: number;
+      winRate: number;
+    }>;
+    reviewers: Array<{
+      reviewer: string;
+      wins: number;
+      losses: number;
+      ties: number;
+      winRate: number;
+    }>;
+    pairings: Array<{
+      author: string;
+      reviewer: string;
+      wins: number;
+      losses: number;
+      ties: number;
+      winRate: number;
     }>;
   };
 }
@@ -216,9 +275,141 @@ export async function writeSummary(baseDir: string, results: ArenaResults) {
 /**
  * Creates a new arena run and returns the base directory and timestamp.
  */
-export async function initArenaRun() {
+export async function initArenaRun(testType: TestType) {
   const timestamp = getTimestamp();
-  const baseDir = join(RESULTS_DIR, timestamp);
+  const baseDir = join(RESULTS_DIR, testType, timestamp);
   await mkdir(baseDir, { recursive: true });
   return { baseDir, timestamp };
+}
+
+/**
+ * Writes a comparison result to the comparisons directory.
+ */
+export async function writeComparison(
+  topicDir: string,
+  judge: string,
+  essayA: { author: string; reviewer?: string },
+  essayB: { author: string; reviewer?: string },
+  winner: "A" | "B" | "tie",
+  reasoning: string
+) {
+  const comparisonsDir = join(topicDir, "comparisons");
+  await mkdir(comparisonsDir, { recursive: true });
+
+  const essayALabel = essayA.reviewer
+    ? `${sanitizeName(essayA.author)}-revised-by-${sanitizeName(
+        essayA.reviewer
+      )}`
+    : sanitizeName(essayA.author);
+  const essayBLabel = essayB.reviewer
+    ? `${sanitizeName(essayB.author)}-revised-by-${sanitizeName(
+        essayB.reviewer
+      )}`
+    : sanitizeName(essayB.author);
+
+  const filename = `${sanitizeName(judge)}-${essayALabel}-vs-${essayBLabel}.md`;
+  const path = join(comparisonsDir, filename);
+
+  const essayADisplay = essayA.reviewer
+    ? `${essayA.author} (revised by ${essayA.reviewer})`
+    : essayA.author;
+  const essayBDisplay = essayB.reviewer
+    ? `${essayB.author} (revised by ${essayB.reviewer})`
+    : essayB.author;
+
+  const winnerDisplay =
+    winner === "A" ? essayADisplay : winner === "B" ? essayBDisplay : "Tie";
+
+  await writeFile(
+    path,
+    `# Comparison by ${judge}\n\n**Essay A:** ${essayADisplay}\n**Essay B:** ${essayBDisplay}\n\n**Winner:** ${winnerDisplay}\n\n## Reasoning\n\n${reasoning}`,
+    "utf-8"
+  );
+  return path;
+}
+
+/**
+ * Writes the 1v1 results JSON file.
+ */
+export async function writeOneVsOneResultsJson(
+  baseDir: string,
+  results: OneVsOneResults
+) {
+  const path = join(baseDir, "results.json");
+  await writeFile(path, JSON.stringify(results, null, 2), "utf-8");
+  return path;
+}
+
+/**
+ * Generates and writes the 1v1 summary markdown file.
+ */
+export async function writeOneVsOneSummary(
+  baseDir: string,
+  results: OneVsOneResults
+) {
+  const path = join(baseDir, "summary.md");
+
+  let content = `# 1v1 Arena Results\n\n`;
+  content += `**Date:** ${results.timestamp}\n\n`;
+  content += `**Models:** ${results.models.length}\n\n`;
+  content += `**Topics:** ${results.topics.length}\n\n`;
+
+  // Aggregate Model Rankings (as Writers)
+  content += `## Aggregate Model Rankings (as Writers)\n\n`;
+  content += `| Rank | Model | Wins | Losses | Ties | Win Rate |\n`;
+  content += `|------|-------|------|--------|------|----------|\n`;
+
+  results.aggregateRankings.essays.forEach((entry, index) => {
+    content += `| ${index + 1} | ${entry.author} | ${entry.wins} | ${
+      entry.losses
+    } | ${entry.ties} | ${(entry.winRate * 100).toFixed(1)}% |\n`;
+  });
+
+  // Aggregate Reviewer Rankings
+  content += `\n## Aggregate Reviewer Rankings\n\n`;
+  content += `| Rank | Reviewer | Wins | Losses | Ties | Win Rate |\n`;
+  content += `|------|----------|------|--------|------|----------|\n`;
+
+  results.aggregateRankings.reviewers.forEach((entry, index) => {
+    content += `| ${index + 1} | ${entry.reviewer} | ${entry.wins} | ${
+      entry.losses
+    } | ${entry.ties} | ${(entry.winRate * 100).toFixed(1)}% |\n`;
+  });
+
+  // Aggregate Pairing Rankings
+  content += `\n## Aggregate Pairing Rankings (Author + Reviewer)\n\n`;
+  content += `| Rank | Author | Reviewer | Wins | Losses | Ties | Win Rate |\n`;
+  content += `|------|--------|----------|------|--------|------|----------|\n`;
+
+  results.aggregateRankings.pairings.forEach((entry, index) => {
+    content += `| ${index + 1} | ${entry.author} | ${entry.reviewer} | ${
+      entry.wins
+    } | ${entry.losses} | ${entry.ties} | ${(entry.winRate * 100).toFixed(
+      1
+    )}% |\n`;
+  });
+
+  // Per-topic summaries
+  content += `\n## Per-Topic Results\n\n`;
+
+  for (const topic of results.topics) {
+    content += `### ${topic.topic}\n\n`;
+
+    content += `| Rank | Essay | Wins | Losses | Ties | Win Rate |\n`;
+    content += `|------|-------|------|--------|------|----------|\n`;
+
+    topic.rankings.essays.forEach((entry, index) => {
+      const label = entry.reviewer
+        ? `${entry.author} (← ${entry.reviewer})`
+        : entry.author;
+      content += `| ${index + 1} | ${label} | ${entry.wins} | ${
+        entry.losses
+      } | ${entry.ties} | ${(entry.winRate * 100).toFixed(1)}% |\n`;
+    });
+
+    content += `\n`;
+  }
+
+  await writeFile(path, content, "utf-8");
+  return path;
 }

@@ -1,6 +1,20 @@
 import { generateText } from "ai";
 import type { RunnableModel } from "./constants";
 
+/**
+ * Extracts cost from OpenRouter provider metadata.
+ */
+function extractCost(
+  providerMetadata: Record<string, unknown> | undefined
+): number {
+  if (!providerMetadata) return 0;
+  const openrouterMeta = providerMetadata.openrouter as any;
+  if (openrouterMeta?.usage?.cost) {
+    return openrouterMeta.usage.cost;
+  }
+  return 0;
+}
+
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
@@ -30,6 +44,12 @@ export interface ScoreResult {
   usage: TokenUsage;
 }
 
+export interface CompareResult {
+  winner: "A" | "B" | "tie";
+  reasoning: string;
+  usage: TokenUsage;
+}
+
 /**
  * Generates an essay based on the given topic prompt.
  */
@@ -51,7 +71,7 @@ Write approximately 800-1200 words.`,
       inputTokens: result.usage?.inputTokens ?? 0,
       outputTokens: result.usage?.outputTokens ?? 0,
       totalTokens: result.usage?.totalTokens ?? 0,
-      cost: (result.providerMetadata?.openrouter?.cost as number) ?? 0,
+      cost: extractCost(result.providerMetadata),
     },
   };
 }
@@ -78,7 +98,7 @@ Be thorough but encouraging. Focus on actionable improvements.`,
       inputTokens: result.usage?.inputTokens ?? 0,
       outputTokens: result.usage?.outputTokens ?? 0,
       totalTokens: result.usage?.totalTokens ?? 0,
-      cost: (result.providerMetadata?.openrouter?.cost as number) ?? 0,
+      cost: extractCost(result.providerMetadata),
     },
   };
 }
@@ -106,7 +126,7 @@ Produce a complete revised essay, not just suggestions.`,
       inputTokens: result.usage?.inputTokens ?? 0,
       outputTokens: result.usage?.outputTokens ?? 0,
       totalTokens: result.usage?.totalTokens ?? 0,
-      cost: (result.providerMetadata?.openrouter?.cost as number) ?? 0,
+      cost: extractCost(result.providerMetadata),
     },
   };
 }
@@ -150,7 +170,71 @@ IMPORTANT: Start your response with EXACTLY "Score: X/10" on the first line (whe
       inputTokens: result.usage?.inputTokens ?? 0,
       outputTokens: result.usage?.outputTokens ?? 0,
       totalTokens: result.usage?.totalTokens ?? 0,
-      cost: (result.providerMetadata?.openrouter?.cost as number) ?? 0,
+      cost: extractCost(result.providerMetadata),
+    },
+  };
+}
+
+/**
+ * Compares two essays head-to-head and picks a winner.
+ */
+export async function compareEssays(
+  judge: RunnableModel,
+  essayA: { author: string; text: string },
+  essayB: { author: string; text: string },
+  topic: string
+): Promise<CompareResult> {
+  const result = await generateText({
+    model: judge.llm,
+    system: `You are an expert essay judge conducting a head-to-head comparison. You will be shown two essays on the same topic, labeled Essay A and Essay B. 
+
+Compare them based on:
+- Clarity and coherence of argument
+- Quality of writing (style, grammar, flow)
+- Depth of insight and originality
+- Relevance to the topic
+- Overall effectiveness
+
+You MUST pick a winner. Only declare a tie if the essays are genuinely indistinguishable in quality.
+
+IMPORTANT: Start your response with EXACTLY one of these on the first line:
+- "Winner: A" (if Essay A is better)
+- "Winner: B" (if Essay B is better)
+- "Winner: Tie" (only if truly equal)
+
+Then provide your detailed reasoning below, explaining why you chose that winner.`,
+    prompt: `Topic: ${topic}
+
+Essay A:
+${essayA.text}
+
+Essay B:
+${essayB.text}
+
+Compare these essays and pick a winner.`,
+  });
+
+  // Parse winner from the text
+  const winnerMatch = result.text.match(/Winner:\s*(A|B|Tie)/i);
+  let winner: "A" | "B" | "tie" = "tie";
+  if (winnerMatch) {
+    const parsed = winnerMatch[1]!.toUpperCase();
+    if (parsed === "A") winner = "A";
+    else if (parsed === "B") winner = "B";
+    else winner = "tie";
+  }
+
+  // Everything after the winner line is the reasoning
+  const reasoning = result.text.replace(/^Winner:\s*(A|B|Tie)\s*/i, "").trim();
+
+  return {
+    winner,
+    reasoning,
+    usage: {
+      inputTokens: result.usage?.inputTokens ?? 0,
+      outputTokens: result.usage?.outputTokens ?? 0,
+      totalTokens: result.usage?.totalTokens ?? 0,
+      cost: extractCost(result.providerMetadata),
     },
   };
 }
