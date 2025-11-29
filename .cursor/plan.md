@@ -1,55 +1,116 @@
-## AI Essay → Review → Revision Pipeline
+# Writing Quality Arena
 
-### Goal
+## Models Configuration
 
-Implement a **Bun-friendly TypeScript CLI** (`bun run index.ts`) that:
+Use the provided `modelsToRun` array in `constants.ts`:
 
-- Prompts the user for an essay topic.
-- Uses **model A (OpenRouter via Vercel AI SDK)** to generate an essay.
-- Uses **model B** to review that essay and produce feedback.
-- Calls **model A again** with the feedback to produce a revised essay.
-- Saves all three artifacts as **markdown files** on disk in a consistent location, with the `runs/` directory ignored by git.
+```ts
+export type RunnableModel = {
+  name: string;
+  llm: LanguageModelV1;
+  reasoning: boolean;
+};
 
-### High-level Design
+export const modelsToRun: RunnableModel[] = [
+  {
+    name: "claude-4.5-opus-reasoning",
+    llm: openrouter("anthropic/claude-opus-4.5"),
+    reasoning: true,
+  },
+  // ... 11 models total
+];
 
-- **Runtime & entrypoint**: Keep using Bun with `index.ts` as the main CLI entrypoint.
-- **AI client setup**:
-- Add `ai` and the **OpenRouter provider for the Vercel AI SDK** as dependencies (no separate `openai` package needed since we are using OpenRouter directly).
-- Configure a small `aiClient.ts` module (or keep logic inline in `index.ts` if very small) that wires the AI SDK to OpenRouter using an `OPENROUTER_API_KEY` env var.
-- Hard-code two model IDs (e.g. one for essay generation, one for review) with clear `const` names so you can easily change them later.
-- **Pipeline orchestration**:
-- Implement a `runEssayPipeline()` function that:
-- Reads the prompt from stdin (simple interactive question).
-- Calls the **essay model** with a system prompt + user prompt to generate the initial essay.
-- Calls the **review model** with system instructions plus the essay content to generate feedback.
-- Calls the **essay model** again with the original prompt and the feedback to produce a revised essay.
-- Keep everything **strongly typed** with small TypeScript interfaces for the pipeline results.
-- **Markdown file output**:
-- Decide on a simple folder and naming scheme (e.g. `runs/<timestamp>-essay.md`, `runs/<timestamp>-review.md`, `runs/<timestamp>-revision.md`).
-- Use Bun / Node fs APIs in a small utility to write each step as a separate markdown file.
-- Include basic front-matter or headings (e.g. `# Original Essay`, `# Review Feedback`, `# Revised Essay`) for easy inspection in an editor.
-- Ensure `runs/` is added to `.gitignore` so generated artifacts don’t clutter git history.
+export const PARALLEL_LIMIT = 5; // Configurable concurrency
+```
 
-### Implementation Steps
+## Execution Flow (4 Phases)
 
-- **setup-deps**: Add `ai` and the OpenRouter provider for the AI SDK to `package.json` and document the required `OPENROUTER_API_KEY` env var in `README.md`.
-- **ai-client**: Create a small AI client configuration that:
-- Instantiates the AI SDK with the OpenRouter provider.
-- Exposes typed helpers like `generateEssay(prompt)`, `reviewEssay(essay)`, and `reviseEssay(prompt, essay, feedback)`.
-- **pipeline-logic**: Implement `runEssayPipeline()` in `index.ts` that:
-- Interactively asks for a prompt via stdin.
-- Runs the three AI steps in sequence (no streaming needed) with clear logging to the console.
-- Returns a typed result object containing the three text outputs.
-- **file-output**: Add a small utility function to:
-- Create a `runs/` directory if it doesn’t exist.
-- Write three markdown files with timestamped names and simple headings.
-- Confirm that `runs/` is listed in `.gitignore`.
-- **polish-types**: Ensure all public functions are type-safe (typed params and return types where helpful) and that the code compiles under the existing `tsconfig`.
+### Phase 1: Essay Generation
 
-### Todos
+Each model writes an essay on the topic. **N calls**.
 
-- **setup-deps**: Add and configure Vercel AI SDK (`ai`) and the OpenRouter provider, and document `OPENROUTER_API_KEY`.
-- **ai-client**: Implement the AI client helper(s) for essay generation, review, and revision using hard-coded OpenRouter model IDs.
-- **pipeline-logic**: Implement the CLI flow in `index.ts` to run the generation → review → revision pipeline.
-- **file-output**: Implement markdown file-writing utilities (create `runs/` directory, timestamped filenames, headings) and ensure `runs/` is in `.gitignore`.
-- **polish-types**: Run TypeScript checks and tighten any loose types if needed.
+### Phase 2: All-to-All Review
+
+Every model reviews EVERY essay (including their own). **N × N calls**.
+
+### Phase 3: Per-Reviewer Revisions
+
+Each model creates a separate revised essay for EACH piece of feedback received. **N × N revisions**.
+
+### Phase 4: Scoring
+
+Every model scores EVERY essay (N originals + N×(N-1) revisions). Use `generateObject` with Zod schema:
+
+```ts
+const ScoreSchema = z.object({
+  score: z.number().min(1).max(10),
+  justification: z.string(),
+});
+```
+
+**N × (N + N×(N-1)) = N × N² = N³ calls**.
+
+## API Call Summary (N=11 models)
+
+| Phase | Formula | Calls |
+
+|-------|---------|-------|
+
+| Essays | N | 11 |
+
+| Feedback | N×(N-1) | 110 |
+
+| Revisions | N×(N-1) | 110 |
+
+| Scores | N³ | 1331 |
+
+| **Total** | | **1562** |
+
+## Rankings
+
+**Essay Ranking**: All essays (original + revised) ranked by average score across all judges.
+
+**Reviewer Ranking**: For each reviewer, calculate avg improvement = mean(revision_score - original_score) for all revisions that used their feedback.
+
+## File Structure
+
+```
+results/{timestamp}/
+├── essays/{model-name}.md
+├── feedback/{reviewer}-on-{author}.md
+├── revisions/{author}-revised-by-{reviewer}.md
+├── results.json
+└── summary.md
+```
+
+## File Changes
+
+| File | Change |
+
+|------|--------|
+
+| `constants.ts` | Add `RunnableModel` type, `modelsToRun` array, `PARALLEL_LIMIT` |
+
+| `types.ts` | Already has appropriate types; verify alignment |
+
+| `aiClient.ts` | Update functions to accept `RunnableModel`, add `scoreEssay()` using `generateObject` |
+
+| `index.ts` | Rewrite with 4-phase arena orchestration, parallel execution via `p-limit`, `confirmRun()` |
+
+| `fileUtils.ts` | Rewrite for arena folder structure (`results/` dir, essays/, feedback/, revisions/, results.json, summary.md) |
+
+## CLI Confirmation
+
+Display call counts and prompt before running:
+
+```ts
+async function confirmRun(): Promise<boolean> {
+  const n = modelsToRun.length;
+  const essays = n;
+  const feedback = n * (n - 1);
+  const revisions = n * (n - 1);
+  const scores = n * n * n;
+  const total = essays + feedback + revisions + scores;
+  // ... display and prompt Y/n
+}
+```
