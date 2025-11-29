@@ -37,69 +37,76 @@ export interface RunnableModel {
   reasoning: boolean;
 }
 
+// Include "usage" so we can log cost
+const defaultProviderOptions = {
+  usage: {
+    include: true,
+  },
+};
+
 export const modelsToRun: RunnableModel[] = [
   // Anthropic
   {
     name: "claude-4.5-opus-reasoning",
-    llm: openrouter("anthropic/claude-opus-4.5"),
+    llm: openrouter("anthropic/claude-opus-4.5", defaultProviderOptions),
     reasoning: true,
   },
   // {
   //   name: "claude-4.5-opus-non-reasoning",
-  //   llm: openrouter("anthropic/claude-opus-4.5"),
+  //   llm: openrouter("anthropic/claude-opus-4.5", defaultProviderOptions),
   //   reasoning: false,
   // },
 
   // OpenAI
   // {
   //   name: "gpt-4o",
-  //   llm: openrouter("openai/gpt-4o"),
+  //   llm: openrouter("openai/gpt-4o", defaultProviderOptions),
   //   reasoning: false,
   // },
   {
     name: "gpt-5.1",
-    llm: openrouter("openai/gpt-5"),
+    llm: openrouter("openai/gpt-5.1", defaultProviderOptions),
     reasoning: true,
   },
   // {
   //   name: "gpt-5.1-chat",
-  //   llm: openrouter("openai/gpt-5.1-chat"),
+  //   llm: openrouter("openai/gpt-5.1-chat", defaultProviderOptions),
   //   reasoning: false,
   // },
   // {
   //   name: "gpt-5-mini",
-  //   llm: openrouter("openai/gpt-5-mini"),
+  //   llm: openrouter("openai/gpt-5-mini", defaultProviderOptions),
   //   reasoning: true,
   // },
 
   // Google
   {
     name: "gemini-3-pro-preview",
-    llm: openrouter("google/gemini-3-pro-preview"),
+    llm: openrouter("google/gemini-3-pro-preview", defaultProviderOptions),
     reasoning: true,
   },
   // {
   //   name: "gemini-2.5-pro",
-  //   llm: openrouter("google/gemini-2.5-pro"),
+  //   llm: openrouter("google/gemini-2.5-pro", defaultProviderOptions),
   //   reasoning: true,
   // },
 
   // Grok
   // {
   //   name: "grok-4.1-fast",
-  //   llm: openrouter("x-ai/grok-4.1-fast"),
+  //   llm: openrouter("x-ai/grok-4.1-fast", defaultProviderOptions),
   //   reasoning: true,
   // },
 
   // Open Weight
   // {
   //   name: "kimi-k2",
-  //   llm: openrouter("moonshotai/kimi-k2"),
+  //   llm: openrouter("moonshotai/kimi-k2", defaultProviderOptions),
   //   reasoning: false,
   // },
   {
     name: "kimi-k2-thinking",
-    llm: openrouter("moonshotai/kimi-k2-thinking"),
+    llm: openrouter("moonshotai/kimi-k2-thinking", defaultProviderOptions),
     reasoning: true,
   },
 ];
@@ -108,17 +115,17 @@ export const modelsToRun: RunnableModel[] = [
 export const dryRunModels: RunnableModel[] = [
   {
     name: "claude-4.5-haiku",
-    llm: openrouter("anthropic/claude-haiku-4.5"),
+    llm: openrouter("anthropic/claude-haiku-4.5", defaultProviderOptions),
     reasoning: false,
   },
   {
     name: "gemini-2.5-flash",
-    llm: openrouter("google/gemini-2.5-flash"),
+    llm: openrouter("google/gemini-2.5-flash", defaultProviderOptions),
     reasoning: true,
   },
   {
     name: "gpt-5-mini",
-    llm: openrouter("openai/gpt-5-mini"),
+    llm: openrouter("openai/gpt-5-mini", defaultProviderOptions),
     reasoning: true,
   },
 ];
