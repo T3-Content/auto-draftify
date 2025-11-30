@@ -579,6 +579,34 @@ function calculateScoringAggregateRankings(
 }
 
 /**
+ * Prints topic results for scoring test.
+ */
+function printScoringTopicResults(result: TopicResults) {
+  console.log(`\n  📊 Results for "${result.topic}":\n`);
+
+  console.log("  📝 Essay Rankings (by avg score):");
+  result.rankings.essays.slice(0, 5).forEach((entry, index) => {
+    const label = entry.reviewer
+      ? `${entry.author} ← ${entry.reviewer} (revised)`
+      : `${entry.author} (original)`;
+    console.log(`    ${index + 1}. ${label} - ${entry.avgScore.toFixed(2)}`);
+  });
+  if (result.rankings.essays.length > 5) {
+    console.log(`    ... and ${result.rankings.essays.length - 5} more`);
+  }
+
+  console.log("\n  🎯 Reviewer Rankings (by improvement impact):");
+  result.rankings.reviewers.forEach((entry, index) => {
+    const sign = entry.avgImprovement >= 0 ? "+" : "";
+    console.log(
+      `    ${index + 1}. ${
+        entry.reviewer
+      } - ${sign}${entry.avgImprovement.toFixed(2)}`
+    );
+  });
+}
+
+/**
  * Run all phases for a single topic (scoring test).
  */
 async function runScoringTopicArena(
@@ -666,10 +694,19 @@ async function runScoringTest(): Promise<void> {
     const topicDuration = Date.now() - topicStart;
     topicResults.push(result);
     topicTimes.push({ topic, duration: topicDuration });
-    console.log(`  ⏱️  Topic completed in ${formatDuration(topicDuration)}`);
+    printScoringTopicResults(result);
+    console.log(`\n  ⏱️  Topic completed in ${formatDuration(topicDuration)}`);
   }
 
   console.log("\n\n📊 Calculating aggregate rankings...\n");
+
+  // Log all topic results before aggregate
+  console.log("═".repeat(60));
+  console.log("\n📋 INDIVIDUAL TOPIC RESULTS\n");
+  for (const result of topicResults) {
+    printScoringTopicResults(result);
+    console.log("");
+  }
   const aggregateRankings = calculateScoringAggregateRankings(topicResults);
 
   const results: ArenaResults = {
@@ -1092,6 +1129,28 @@ function calculateOneVsOneAggregateRankings(
 }
 
 /**
+ * Prints topic results for 1v1 test.
+ */
+function printOneVsOneTopicResults(result: OneVsOneTopicResults) {
+  console.log(`\n  📊 Results for "${result.topic}":\n`);
+
+  console.log("  📝 Essay Rankings (by win rate):");
+  result.rankings.essays.slice(0, 5).forEach((entry, index) => {
+    const label = entry.reviewer
+      ? `${entry.author} ← ${entry.reviewer} (revised)`
+      : `${entry.author} (original)`;
+    console.log(
+      `    ${index + 1}. ${label} - ${entry.wins}W/${entry.losses}L/${
+        entry.ties
+      }T (${(entry.winRate * 100).toFixed(1)}%)`
+    );
+  });
+  if (result.rankings.essays.length > 5) {
+    console.log(`    ... and ${result.rankings.essays.length - 5} more`);
+  }
+}
+
+/**
  * Run all phases for a single topic (1v1 test).
  */
 async function runOneVsOneTopicArena(
@@ -1174,10 +1233,20 @@ async function runOneVsOneTest(): Promise<void> {
     const topicDuration = Date.now() - topicStart;
     topicResults.push(result);
     topicTimes.push({ topic, duration: topicDuration });
-    console.log(`  ⏱️  Topic completed in ${formatDuration(topicDuration)}`);
+    printOneVsOneTopicResults(result);
+    console.log(`\n  ⏱️  Topic completed in ${formatDuration(topicDuration)}`);
   }
 
   console.log("\n\n📊 Calculating aggregate rankings...\n");
+
+  // Log all topic results before aggregate
+  console.log("═".repeat(60));
+  console.log("\n📋 INDIVIDUAL TOPIC RESULTS\n");
+  for (const result of topicResults) {
+    printOneVsOneTopicResults(result);
+    console.log("");
+  }
+
   const aggregateRankings = calculateOneVsOneAggregateRankings(topicResults);
 
   const results: OneVsOneResults = {

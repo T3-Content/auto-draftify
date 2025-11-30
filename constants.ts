@@ -13,19 +13,19 @@ const openrouter = createOpenRouter({
 });
 
 // Parallelism configuration
-export const PARALLEL_LIMIT = 20;
+export const PARALLEL_LIMIT = 30;
 
 // Essay topics
 export const TOPICS = [
   // "The role of failure in personal growth",
   // "Why boredom is underrated",
-  // "The ethics of artificial intelligence",
-  // "How social media reshapes human connection",
+  "The ethics of artificial intelligence",
+  "How social media reshapes human connection",
   // "The value of slow living in a fast world",
   // "Why we should embrace uncertainty",
   // "The hidden costs of convenience",
   // "What makes a good explanation",
-  "The relationship between creativity and constraint",
+  // "The relationship between creativity and constraint",
   // "Why some ideas spread and others don't",
   "the negative impacts on society from artificial intelligence",
 ] as const;
