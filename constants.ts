@@ -13,7 +13,22 @@ const openrouter = createOpenRouter({
 });
 
 // Parallelism configuration
-export const PARALLEL_LIMIT = 30;
+export const PARALLEL_LIMIT = 100;
+
+/**
+ * Stagger request start times to avoid huge bursts when running high concurrency.
+ *
+ * This is applied per-phase, and bounded by roughly:
+ *   (PARALLEL_LIMIT - 1) * API_STAGGER_MS
+ *
+ * You can override via env vars:
+ * - ARENA_API_STAGGER_MS
+ * - ARENA_API_STAGGER_JITTER_MS
+ */
+export const API_STAGGER_MS =
+  Number.parseInt(process.env.ARENA_API_STAGGER_MS ?? "", 10) || 25;
+export const API_STAGGER_JITTER_MS =
+  Number.parseInt(process.env.ARENA_API_STAGGER_JITTER_MS ?? "", 10) || 25;
 
 // Essay topics
 export const TOPICS = [
@@ -50,7 +65,10 @@ export const modelsToRun: RunnableModel[] = [
   // Anthropic
   {
     name: "claude-4.5-opus-reasoning",
-    llm: openrouter("anthropic/claude-opus-4.5", defaultProviderOptions),
+    llm: openrouter("anthropic/claude-opus-4.5", {
+      ...defaultProviderOptions,
+      reasoning: { effort: "high" },
+    }),
     reasoning: true,
     reviewer: true,
   },
@@ -68,9 +86,21 @@ export const modelsToRun: RunnableModel[] = [
   //   reasoning: false,
   //   reviewer: true,
   // },
+  // {
+  //   name: "gpt-5.1",
+  //   llm: openrouter("openai/gpt-5.1", {
+  //     ...defaultProviderOptions,
+  //     reasoning: { effort: "high" },
+  //   }),
+  //   reasoning: true,
+  //   reviewer: false,
+  // },
   {
-    name: "gpt-5.1",
-    llm: openrouter("openai/gpt-5.1", defaultProviderOptions),
+    name: "gpt-5.2",
+    llm: openrouter("openai/gpt-5.2", {
+      ...defaultProviderOptions,
+      reasoning: { effort: "high" },
+    }),
     reasoning: true,
     reviewer: true,
   },
@@ -90,7 +120,10 @@ export const modelsToRun: RunnableModel[] = [
   // Google
   {
     name: "gemini-3-pro-preview",
-    llm: openrouter("google/gemini-3-pro-preview", defaultProviderOptions),
+    llm: openrouter("google/gemini-3-pro-preview", {
+      ...defaultProviderOptions,
+      reasoning: { effort: "high" },
+    }),
     reasoning: true,
     reviewer: true,
   },
@@ -118,7 +151,10 @@ export const modelsToRun: RunnableModel[] = [
   // },
   {
     name: "kimi-k2-thinking",
-    llm: openrouter("moonshotai/kimi-k2-thinking", defaultProviderOptions),
+    llm: openrouter("moonshotai/kimi-k2-thinking", {
+      ...defaultProviderOptions,
+      reasoning: { effort: "high" },
+    }),
     reasoning: true,
     reviewer: true,
   },

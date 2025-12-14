@@ -10,6 +10,8 @@ import {
 import {
   modelsToRun as allModels,
   dryRunModels,
+  API_STAGGER_JITTER_MS,
+  API_STAGGER_MS,
   PARALLEL_LIMIT,
   TOPICS,
 } from "./constants";
@@ -36,7 +38,8 @@ import {
 const isDryRun = process.argv.includes("--dry-run");
 const modelsToRun = isDryRun ? dryRunModels : allModels;
 const reviewerModels = modelsToRun.filter((m) => m.reviewer);
-const comparisonJudges = reviewerModels.length > 0 ? reviewerModels : modelsToRun;
+const comparisonJudges =
+  reviewerModels.length > 0 ? reviewerModels : modelsToRun;
 
 // Parse --test argument
 function getTestTypeFromArgs(): TestType | null {
@@ -50,7 +53,37 @@ function getTestTypeFromArgs(): TestType | null {
   process.exit(1);
 }
 
-const limit = pLimit(PARALLEL_LIMIT);
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Creates a per-phase limiter that keeps concurrency high, but staggers
+ * request start times to avoid huge bursts at time 0.
+ */
+function createApiLimit() {
+  const limit = pLimit(PARALLEL_LIMIT);
+  let started = 0;
+
+  return async function runLimited<T>(fn: () => Promise<T>) {
+    return limit(async () => {
+      const slot = started % PARALLEL_LIMIT;
+      started++;
+
+      const jitter =
+        API_STAGGER_JITTER_MS > 0
+          ? Math.floor(Math.random() * (API_STAGGER_JITTER_MS + 1))
+          : 0;
+      const delay = slot * API_STAGGER_MS + jitter;
+
+      if (delay > 0) {
+        await sleep(delay);
+      }
+
+      return fn();
+    });
+  };
+}
 
 /**
  * Tracks token usage and costs per model per phase.
@@ -120,12 +153,16 @@ async function runPhase1Essays(
   topic: string,
   topicDir: string
 ): Promise<Record<string, string>> {
+  const limit = createApiLimit();
   const essays: Record<string, string> = {};
 
   const tasks = modelsToRun.map((model) =>
     limit(async () => {
       console.log(`    Generating essay: ${model.name}...`);
       const result = await generateEssay(model, topic);
+      if (!result) {
+        return null;
+      }
       essays[model.name] = result.text;
       usageTracker.essays[model.name]!.push(result.usage);
       await writeEssay(topicDir, model.name, result.text);
@@ -150,6 +187,7 @@ async function runPhase2Feedback(
   essays: Record<string, string>,
   topicDir: string
 ): Promise<Record<string, Record<string, string>>> {
+  const limit = createApiLimit();
   const feedback: Record<string, Record<string, string>> = {};
 
   // Initialize nested objects
@@ -162,12 +200,17 @@ async function runPhase2Feedback(
   for (const reviewer of modelsToRun) {
     for (const author of modelsToRun) {
       if (reviewer.name === author.name) continue;
+      // Skip if no essay exists for this author
+      if (!essays[author.name]) continue;
 
       tasks.push(
         limit(async () => {
           console.log(`    ${reviewer.name} reviewing ${author.name}...`);
           const essayText = essays[author.name]!;
           const result = await reviewEssay(reviewer, essayText, topic);
+          if (!result) {
+            return;
+          }
           feedback[reviewer.name]![author.name] = result.text;
           usageTracker.reviews[reviewer.name]!.push(result.usage);
           await writeFeedback(
@@ -199,6 +242,7 @@ async function runPhase3Revisions(
   feedback: Record<string, Record<string, string>>,
   topicDir: string
 ): Promise<Record<string, Record<string, string>>> {
+  const limit = createApiLimit();
   const revisions: Record<string, Record<string, string>> = {};
 
   // Initialize nested objects
@@ -211,6 +255,9 @@ async function runPhase3Revisions(
   for (const author of modelsToRun) {
     for (const reviewer of modelsToRun) {
       if (author.name === reviewer.name) continue;
+      // Skip if no essay or no feedback exists
+      if (!essays[author.name]) continue;
+      if (!feedback[reviewer.name]?.[author.name]) continue;
 
       tasks.push(
         limit(async () => {
@@ -225,6 +272,9 @@ async function runPhase3Revisions(
             essayText,
             reviewerFeedback
           );
+          if (!result) {
+            return;
+          }
           revisions[author.name]![reviewer.name] = result.text;
           usageTracker.revisions[author.name]!.push(result.usage);
           await writeRevision(
@@ -355,6 +405,7 @@ async function runPhase4Scoring(
     Record<string, Record<string, { score: number; justification: string }>>
   >;
 }> {
+  const limit = createApiLimit();
   const originalScores: Record<
     string,
     Record<string, { score: number; justification: string }>
@@ -376,11 +427,17 @@ async function runPhase4Scoring(
 
   for (const judge of modelsToRun) {
     for (const author of modelsToRun) {
+      // Skip if no essay exists for this author
+      if (!essays[author.name]) continue;
+
       tasks.push(
         limit(async () => {
           const essayText = essays[author.name]!;
           console.log(`    ${judge.name} scoring ${author.name} (original)...`);
           const result = await scoreEssay(judge, essayText, topic);
+          if (!result) {
+            return;
+          }
           originalScores[judge.name]![author.name] = {
             score: result.score,
             justification: result.justification,
@@ -402,6 +459,8 @@ async function runPhase4Scoring(
     for (const author of modelsToRun) {
       for (const reviewer of modelsToRun) {
         if (author.name === reviewer.name) continue;
+        // Skip if no revision exists
+        if (!revisions[author.name]?.[reviewer.name]) continue;
 
         tasks.push(
           limit(async () => {
@@ -410,6 +469,9 @@ async function runPhase4Scoring(
               `    ${judge.name} scoring ${author.name}←${reviewer.name} (revised)...`
             );
             const result = await scoreEssay(judge, revision, topic);
+            if (!result) {
+              return;
+            }
             revisedScores[judge.name]![author.name]![reviewer.name] = {
               score: result.score,
               justification: result.justification,
@@ -453,24 +515,38 @@ function calculateScoringRankings(scores: {
   }> = [];
 
   const judges = Object.keys(scores.original);
-  const firstJudge = judges[0]!;
-  const authors = Object.keys(scores.original[firstJudge]!);
+  if (judges.length === 0) {
+    return { essays: [], reviewers: [] };
+  }
+
+  // Collect all authors that have at least one score
+  const allAuthors = new Set<string>();
+  for (const judge of judges) {
+    for (const author of Object.keys(scores.original[judge] ?? {})) {
+      allAuthors.add(author);
+    }
+  }
+  const authors = Array.from(allAuthors);
 
   for (const author of authors) {
-    const judgeScores = judges.map((j) => scores.original[j]![author]!.score);
+    const judgeScoresRaw = judges
+      .map((j) => scores.original[j]?.[author]?.score)
+      .filter((s): s is number => s !== undefined);
+    if (judgeScoresRaw.length === 0) continue;
     const avgScore =
-      judgeScores.reduce((a, b) => a + b, 0) / judgeScores.length;
+      judgeScoresRaw.reduce((a, b) => a + b, 0) / judgeScoresRaw.length;
     essayScores.push({ type: "original", author, avgScore });
   }
 
   for (const author of authors) {
     for (const reviewer of authors) {
       if (author === reviewer) continue;
-      const judgeScores = judges.map(
-        (j) => scores.revised[j]![author]![reviewer]!.score
-      );
+      const judgeScoresRaw = judges
+        .map((j) => scores.revised[j]?.[author]?.[reviewer]?.score)
+        .filter((s): s is number => s !== undefined);
+      if (judgeScoresRaw.length === 0) continue;
       const avgScore =
-        judgeScores.reduce((a, b) => a + b, 0) / judgeScores.length;
+        judgeScoresRaw.reduce((a, b) => a + b, 0) / judgeScoresRaw.length;
       essayScores.push({ type: "revised", author, reviewer, avgScore });
     }
   }
@@ -483,29 +559,33 @@ function calculateScoringRankings(scores: {
   }
 
   for (const author of authors) {
+    const originalScoresRaw = judges
+      .map((j) => scores.original[j]?.[author]?.score)
+      .filter((s): s is number => s !== undefined);
+    if (originalScoresRaw.length === 0) continue;
     const originalAvg =
-      judges.reduce((sum, j) => sum + scores.original[j]![author]!.score, 0) /
-      judges.length;
+      originalScoresRaw.reduce((a, b) => a + b, 0) / originalScoresRaw.length;
 
     for (const reviewer of authors) {
       if (author === reviewer) continue;
+      const revisedScoresRaw = judges
+        .map((j) => scores.revised[j]?.[author]?.[reviewer]?.score)
+        .filter((s): s is number => s !== undefined);
+      if (revisedScoresRaw.length === 0) continue;
       const revisedAvg =
-        judges.reduce(
-          (sum, j) => sum + scores.revised[j]![author]![reviewer]!.score,
-          0
-        ) / judges.length;
+        revisedScoresRaw.reduce((a, b) => a + b, 0) / revisedScoresRaw.length;
       const improvement = revisedAvg - originalAvg;
       reviewerImpact[reviewer]!.push(improvement);
     }
   }
 
-  const reviewerScores = Object.entries(reviewerImpact).map(
-    ([reviewer, improvements]) => ({
+  const reviewerScores = Object.entries(reviewerImpact)
+    .filter(([, improvements]) => improvements.length > 0)
+    .map(([reviewer, improvements]) => ({
       reviewer,
       avgImprovement:
         improvements.reduce((a, b) => a + b, 0) / improvements.length,
-    })
-  );
+    }));
 
   reviewerScores.sort((a, b) => b.avgImprovement - a.avgImprovement);
 
@@ -860,6 +940,7 @@ async function runPhase4Comparisons(
   revisions: Record<string, Record<string, string>>,
   topicDir: string
 ): Promise<ComparisonResult[]> {
+  const limit = createApiLimit();
   const comparisons: ComparisonResult[] = [];
 
   // Build list of all essays (original + revised)
@@ -916,6 +997,10 @@ async function runPhase4Comparisons(
             { author: essayB.author, text: essayB.text },
             topic
           );
+
+          if (!result) {
+            return;
+          }
 
           const comparison: ComparisonResult = {
             judge: judge.name,
