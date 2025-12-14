@@ -12,7 +12,6 @@ import {
   dryRunModels,
   PARALLEL_LIMIT,
   TOPICS,
-  type RunnableModel,
 } from "./constants";
 import {
   createTopicDirectories,
@@ -36,6 +35,8 @@ import {
 // Parse CLI flags
 const isDryRun = process.argv.includes("--dry-run");
 const modelsToRun = isDryRun ? dryRunModels : allModels;
+const reviewerModels = modelsToRun.filter((m) => m.reviewer);
+const comparisonJudges = reviewerModels.length > 0 ? reviewerModels : modelsToRun;
 
 // Parse --test argument
 function getTestTypeFromArgs(): TestType | null {
@@ -772,6 +773,7 @@ function countOneVsOneApiCalls() {
   let comparisons = 0;
 
   const n = modelsToRun.length;
+  const judgeCount = comparisonJudges.length;
 
   for (const _topic of TOPICS) {
     // Phase 1: Essays
@@ -786,7 +788,7 @@ function countOneVsOneApiCalls() {
     // Phase 4: Comparisons
     // Original essays: C(n, 2) pairs = n*(n-1)/2, each judged by n models
     const originalPairs = (n * (n - 1)) / 2;
-    comparisons += originalPairs * n;
+    comparisons += originalPairs * judgeCount;
 
     // Revised essays: each model has (n-1) revisions
     // Total revised essays = n * (n-1)
@@ -794,7 +796,7 @@ function countOneVsOneApiCalls() {
     // Actually: all revised essays compete pairwise
     const revisedCount = n * (n - 1);
     const revisedPairs = (revisedCount * (revisedCount - 1)) / 2;
-    comparisons += revisedPairs * n;
+    comparisons += revisedPairs * judgeCount;
   }
 
   return {
@@ -818,6 +820,7 @@ async function confirmOneVsOneRun(): Promise<boolean> {
     console.log("⚡ DRY RUN MODE (using cheap models)\n");
   }
   console.log(`Models: ${modelsToRun.length}`);
+  console.log(`Comparison judges: ${comparisonJudges.length}`);
   console.log(`Topics: ${TOPICS.length}`);
   console.log(`\nAPI Call Breakdown (across all ${TOPICS.length} topics):`);
   console.log(
@@ -894,7 +897,7 @@ async function runPhase4Comparisons(
 
   const tasks: Array<Promise<void>> = [];
 
-  for (const judge of modelsToRun) {
+  for (const judge of comparisonJudges) {
     for (const [essayA, essayB] of pairs) {
       tasks.push(
         limit(async () => {
